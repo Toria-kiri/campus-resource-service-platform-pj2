@@ -1,0 +1,1 @@
+"""Campus resource platform backend."""
