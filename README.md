@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-目前仅完成目录和文档初始化。没有业务代码、API、依赖清单、可运行服务、数据库表、迁移脚本、Docker 配置或 GitHub Actions 工作流，因此暂不提供安装、启动或部署命令。目录说明是开发约定，不能视为已经实现的能力。本次没有提交、推送或合并 Git 变更。
+已初始化 Python 3.12 + uv 统一后端环境、M1/M2/M3 最小 FastAPI 入口、健康检查、pytest 与 Ruff，以及 Windows/Ubuntu 双平台基础 CI 配置。预约、审批、报修及 D 业务均未实现；没有数据库表、迁移、Docker 或部署配置。验证证据见 [INIT-002 任务记录](docs/requirements/INIT-002-dev-environment.md)，Ubuntu CI 是否通过以 GitHub Actions 实际运行结果为准。AI 变更待人工验收。
 
 ## 功能范围
 
@@ -21,7 +21,54 @@
 
 ## 技术与架构
 
-初步技术栈：Python + FastAPI、Vue 3 + TypeScript、PostgreSQL、Docker、GitHub Actions、华为云。版本、包管理器、测试/迁移工具及云资源尚未选定。
+本次确认的后端工具为 Python 3.12、uv 0.13.1、FastAPI、pytest、Ruff，依赖精确版本见根目录 `uv.lock`。六名成员日常使用 Windows + VS Code，目标部署系统为华为云 Ubuntu；基础 CI 同时验证 Windows 和 Ubuntu。Vue 3 + TypeScript、PostgreSQL、Docker、华为云仍为后续技术规划，前端具体版本、迁移工具和云资源尚未选定。
+
+根目录单一 `pyproject.toml`、`uv.lock` 和 `.venv` 管理后端依赖，开发依赖归入 `dev` 组，不将每个领域目录包装为独立发布包。依据与备选见 [ADR-0002](docs/adr/0002-python-environment-and-ci.md)（待团队评审）。
+
+## 本地开发与基础验证
+
+以下命令均在仓库根目录执行。Windows PowerShell 与 Ubuntu shell 使用相同的 uv 命令，无需激活虚拟环境或设置 `PYTHONPATH`。
+
+先按 [uv 官方安装说明](https://docs.astral.sh/uv/getting-started/installation/)安装 uv 0.13.1。Windows 已有 Python 和 pip 时可执行 `py -m pip install uv==0.13.1`，安装后确认 `uv --version`。项目所需 Python 由 uv 安装，不要求系统默认版本已为 3.12。
+
+```text
+uv python install 3.12
+uv sync --locked --dev
+uv run --locked python --version
+```
+
+VS Code 打开仓库根目录，安装 Microsoft Python 扩展，通过“Python: Select Interpreter”选择根目录 `.venv`：Windows 为 `.venv/Scripts/python.exe`，Ubuntu 为 `.venv/bin/python`。不将本机绝对路径写入共享配置。
+
+拉取依赖变更后执行 `uv sync --locked --dev`。新增或升级依赖时显式更新配置与锁文件，并将两者一起交付评审：
+
+```text
+uv add <依赖名>
+uv add --dev <开发依赖名>
+uv lock --upgrade-package <依赖名>
+uv sync --locked --dev
+```
+
+本地与两个 CI 平台使用相同检查：
+
+```text
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pytest
+```
+
+修正格式使用 `uv run --locked ruff format .`，随后检查差异。pytest 通过 importlib 模式收集同名模块测试，路径配置集中在 `pyproject.toml`。
+
+在三个终端中分别启动应用（端口仅为本地开发约定）：
+
+```text
+uv run --locked uvicorn backend.modules.m1.main:app --reload --port 8001
+uv run --locked uvicorn backend.modules.m2.main:app --reload --port 8002
+uv run --locked uvicorn backend.modules.m3.main:app --reload --port 8003
+```
+
+分别访问 `http://127.0.0.1:8001/health`、`http://127.0.0.1:8002/health`、`http://127.0.0.1:8003/health`，均应返回 HTTP 200 和 `{"status":"ok"}`。约定见 [health 契约](contracts/health.md)。Ctrl+C 停止服务。当前应用没有数据库或环境变量要求；真实密钥不进入仓库。
+
+基础 CI 在所有 PR 及 `main` Push 时运行，使用 Windows/Ubuntu 矩阵、同一 `.python-version`、固定 uv 版本和 `uv.lock`，依次同步依赖、检查代码与格式、运行 pytest。GitHub 分支保护还需将两个矩阵检查设为必需并要求人工评审；当前未核实远程保护设置。
 
 采用 Monorepo，前后端分离，后端按 M1/M2/M3/D 组织。模块目录不等于已经确定的微服务。跨模块业务通过公开网络 API 交互，禁止访问其他模块内部服务或数据表，以支持任务书要求的真实网络调用演示。进程数量、路由/网关、数据库物理隔离及一致性方案待 ADR 确认。
 
@@ -39,7 +86,7 @@ D 管理空间/座位身份与基础属性，M1 管理预约与有效可用状�
 
 ## 当前目录
 
-各 README 是有实际内容的目录约定，代码子目录按需要加入。
+以下展示主要目录；另有根目录 `pyproject.toml`、`uv.lock`、`.python-version` 和 `.github/workflows/ci.yml`，M1/M2/M3 各有 `main.py` 和 `tests/test_health.py`。
 
 ```text
 .
@@ -81,7 +128,7 @@ D 管理空间/座位身份与基础属性，M1 管理预约与有效可用状�
 | tests | 契约、真实跨模块集成、端到端与迁移验证，不重复模块内单元测试 |
 | database/migrations、seeds | 有序版本化结构演进与幂等初始化数据，均标注所属模块 |
 | ops | 后续容器、环境模板、华为云基础设施/部署脚本与发布回滚记录 |
-| .github | 后续 PR 模板、评审约定及 Actions；目前只有规划说明 |
+| .github | Windows/Ubuntu 基础 CI；PR 模板和平台保护设置仍待完善 |
 | plugins | 独立插件包及安装、配置、调用、构建/部署约定 |
 | docs/requirements、adr、ethics | 需求验收追踪、架构决策、持续伦理分析与证据 |
 
@@ -302,9 +349,9 @@ PR 经人工评审并通过要求的检查后，方可合并到 `main`。
 
 开发、测试、生产环境由本组独占、组内模块共用；配置、数据和凭据隔离。模板进仓库，真实密钥使用本地环境或 CI/云密钥管理；禁止真实学生资料、凭据、生产数据入库。
 
-后续选定版本和锁文件、建立真实启动方式，再加入 Docker 与华为云基础设施脚本。结构仅由版本化迁移演进，空库可完整重放、重跑安全；种子数据幂等且与业务数据分离。迁移工具、隔离和恢复策略先评审。
+已提供统一版本配置、锁文件和本地启动方式，后续再加入 Docker 与华为云 Ubuntu 基础设施脚本。结构仅由版本化迁移演进，空库可完整重放、重跑安全；种子数据幂等且与业务数据分离。迁移工具、隔离和恢复策略先评审。
 
-未来 Actions 在提交和 PR 自动构建测试，失败阻断后续阶段及合并；测试环境自动部署本组全部交付模块，生产经人工审批且可回滚。协调发布顺序，通过部署窗口或等效机制避免集成测试在部署中误报。迁移与插件交付逐步纳入流水线。当前没有这些自动化配置。
+当前 Actions 配置只覆盖 PR 和 main Push 的基础检查与测试；托管执行结果、必需检查及人工评审保护仍需在 GitHub 核实。后续补充构建交付、测试环境自动部署、生产人工审批与回滚，并协调发布顺序，通过部署窗口或等效机制避免集成误报。迁移与插件交付逐步纳入流水线。
 
 课程不设统一完成日期：启动确认分工与 D 归属；第一次 Review 提交需求基线、任务依赖、架构/首轮功能、AI 规则和风险；第二次 Review 打通主功能/集成、迁移流水线和提交到部署流程；期末现场演示新环境部署、变更触发构建测试、schema 演进、生产发布/回退、一次网络跨模块写回。完成附加项则再演示会话操作。
 
@@ -313,6 +360,6 @@ PR 经人工评审并通过要求的检查后，方可合并到 `main`。
 1. 确认分工、D 归属、契约维护者及发布协调人，评审暂定 [ADR-0001](docs/adr/0001-repository-boundaries.md)。
 2. 完善需求与可执行验收标准，讨论其他集成点，确定优先级和迭代安排。
 3. 确认网络拓扑、数据所有权/隔离、占用冲突及一致性/重试/补偿方案。
-4. 选择技术版本、依赖/测试/迁移工具、云资源、环境与凭据管理方案。
+4. 人工验收基础环境与 CI，核实 GitHub 双平台结果和保护设置；继续选择迁移工具、云资源、环境与凭据管理方案。
 5. 逐步实现服务与真实验证、迁移和流水线，持续维护需求、决策、伦理和发布证据。
 6. 主线成熟后评估 DSH 插件、代理意图澄清与写操作确认、安装及交付方案。
