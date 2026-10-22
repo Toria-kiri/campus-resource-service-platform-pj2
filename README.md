@@ -355,6 +355,309 @@ PR 经人工评审并通过要求的检查后，方可合并到 `main`。
 
 课程不设统一完成日期：启动确认分工与 D 归属；第一次 Review 提交需求基线、任务依赖、架构/首轮功能、AI 规则和风险；第二次 Review 打通主功能/集成、迁移流水线和提交到部署流程；期末现场演示新环境部署、变更触发构建测试、schema 演进、生产发布/回退、一次网络跨模块写回。完成附加项则再演示会话操作。
 
+# 团队开发环境与依赖同步操作手册
+
+**适用项目：** 校园资源服务平台  
+**适用人员：** M1、M2、M3 及公共模块 D 的所有开发成员  
+**开发环境：** Windows + VS Code + GitHub Desktop  
+**技术环境：** Python 3.12 + uv + FastAPI + pytest + Ruff
+
+## 一、核心原则
+
+团队使用 GitHub 共享项目代码和依赖配置，每位成员在自己的电脑上维护独立的 Python 虚拟环境。
+
+需要记住以下四条规则：
+
+1. **GitHub 不存储每个人的 Python 虚拟环境。** `.venv/` 只保存在本地，不提交到仓库。
+2. **新增或修改项目依赖，必须同时提交 `pyproject.toml` 和 `uv.lock`。** 不能只在本地安装依赖。
+3. **拉取其他成员已合并的依赖更新后，必须执行 `uv sync --locked --dev`。** Git Pull 不会自动将新库安装到本地虚拟环境。
+4. **功能代码及其测试一起提交 PR。** GitHub Actions 自动验证代码和依赖，但不会自动把依赖安装到其他成员的电脑。
+
+---
+
+## 二、项目中与开发环境有关的文件
+
+| 文件或目录 | 功能 | 是否提交 GitHub |
+|---|---|---|
+| `pyproject.toml` | 声明项目依赖和工具配置 | 是 |
+| `uv.lock` | 锁定依赖解析结果 | 是 |
+| `.python-version` | 约定 Python 版本 | 是 |
+| `.venv/` | 本地 Python 虚拟环境 | **否** |
+| `.github/workflows/ci.yml` | 配置 GitHub 自动检查 | 是 |
+| `.gitignore` | 规定不应提交的本地文件 | 是 |
+| `backend/` | 后端功能实现和模块测试 | 是 |
+
+其中，最需要关注的是：
+
+**`pyproject.toml` + `uv.lock` + `.venv/`**
+
+前两个文件描述团队应该使用什么依赖，最后一个目录存放当前电脑实际安装的依赖。
+
+---
+
+## 三、新组员第一次加入项目
+
+### 第一步：准备本地工具
+
+确保已安装：
+
+- GitHub Desktop
+- VS Code
+- uv
+
+打开 VS Code，在项目根目录执行：
+
+```powershell
+uv --version
+```
+
+如果提示找不到 uv，需要先按照项目 README 安装团队约定版本的 uv。
+
+### 第二步：克隆 GitHub 仓库
+
+使用 GitHub Desktop：
+
+`File → Clone repository`
+
+选择团队仓库，并指定本地目录。
+
+克隆完成后，选择 `Repository → Open in Visual Studio Code`。
+
+### 第三步：安装项目 Python 环境
+
+在 VS Code 终端中，确保当前目录是仓库根目录，然后执行：
+
+```powershell
+uv python install
+uv sync --locked --dev
+```
+
+第一条命令根据 `.python-version` 准备 Python。
+
+第二条命令根据项目配置和锁文件：
+
+- 创建或更新根目录的 `.venv`。
+- 安装 FastAPI 等运行依赖。
+- 安装 pytest、Ruff 等开发依赖。
+- 校验锁文件与依赖声明是否一致。
+
+**不需要手动创建 `.venv`，也不需要复制其他成员的虚拟环境。**
+
+### 第四步：验证环境
+
+```powershell
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pytest
+```
+
+三项检查全部通过，说明本地基础环境已经准备好。
+
+注意：这些命令验证的是当前项目基础检查，并不意味着将来所有数据库、外部服务或部署环境都已经准备好。
+
+---
+
+## 四、开发者新增功能时的操作流程
+
+假设 M1 组员要开发座位预约功能，需要新增 SQLAlchemy 依赖。
+
+### 第一步：同步最新代码并创建功能分支
+
+在 GitHub Desktop：
+
+1. 确认没有未处理的本地修改。
+2. 切换到 `main`。
+3. 点击 `Fetch origin`，如有更新则 `Pull origin`。
+4. 从最新 `main` 创建功能分支。
+
+例如：
+
+`feat/M1-003-seat-reservation`
+
+**禁止直接在 main 上开发业务功能。**
+
+### 第二步：同步当前项目环境
+
+在 VS Code 项目根目录执行：
+
+```powershell
+uv sync --locked --dev
+```
+
+这一步确保开始开发时，本地环境与当前分支的依赖配置一致。
+
+### 第三步：新增项目依赖
+
+如果需要 SQLAlchemy，执行：
+
+```powershell
+uv add sqlalchemy
+```
+
+uv 通常会自动完成：
+
+- 修改 `pyproject.toml`。
+- 更新 `uv.lock`。
+- 将新依赖安装到当前 `.venv`。
+
+如果新增的是仅用于测试或代码检查的开发工具，例如 pytest-cov：
+
+```powershell
+uv add --dev pytest-cov
+```
+
+**不要仅通过 `pip install` 增加项目依赖，否则依赖可能只存在于个人电脑中。**
+
+如果需要删除依赖，应使用：
+
+```powershell
+uv remove sqlalchemy
+```
+
+### 第四步：编写功能代码及对应测试
+
+例如：
+
+```text
+backend/
+└── modules/
+    └── m1/
+        ├── reservation.py
+        └── tests/
+            └── test_reservation.py
+```
+
+新增功能时，应同步增加能够验证其行为的测试。
+
+### 第五步：本地执行检查
+
+开发完成后执行：
+
+```powershell
+uv sync --locked --dev
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pytest
+```
+
+只有所有适用检查通过，才应提交 PR。
+
+如果某项检查失败，需要先排查。不得简单删除测试或屏蔽错误来获得通过结果。
+
+### 第六步：使用 GitHub Desktop 提交
+
+在 GitHub Desktop 的 `Changes` 页面检查文件。
+
+如果新增了依赖，本次提交应当包含：
+
+```text
+backend/modules/m1/reservation.py
+backend/modules/m1/tests/test_reservation.py
+pyproject.toml
+uv.lock
+```
+
+不要提交：
+
+```text
+.venv/
+__pycache__/
+.env
+个人密钥或本地缓存
+```
+
+填写 Commit 信息并提交，然后点击 `Push origin` 或 `Publish branch`。
+
+### 第七步：创建 PR
+
+在 GitHub 上创建指向 `main` 的 Pull Request。
+
+PR 描述应说明：
+
+- 新增了什么功能。
+- 新增或修改了哪些依赖。
+- 增加了哪些测试。
+- 本地验证结果。
+- 是否涉及跨模块接口或数据库结构变化。
+
+随后 GitHub Actions 将自动执行 CI。
+
+CI 通过并经其他成员人工审核后，才能按照团队约定合并。
+
+---
+
+## 五、其他组员如何同步最新代码和依赖？
+
+这是所有成员需要重复执行的流程。
+
+假设 M1 组员已经把新增 SQLAlchemy 的 PR 合并进 `main`。
+
+### 情况 A：准备开始新的开发任务
+
+**第一步：Pull 最新 main**
+
+打开 GitHub Desktop：
+
+1. 切换到 `main`。
+2. 点击 `Fetch origin`。
+3. 有远程更新时，点击 `Pull origin`。
+
+Git 会将最新的 `pyproject.toml`、`uv.lock` 以及业务代码下载到本地。
+
+**第二步：同步 Python 环境**
+
+在 VS Code 项目根目录执行：
+
+```powershell
+uv sync --locked --dev
+```
+
+uv 会根据新的依赖配置调整 `.venv`：
+
+- 安装新增依赖。
+- 根据锁文件更新需要更新的依赖。
+- 移除不再需要的受管理依赖。
+
+**第三步：运行检查**
+
+```powershell
+uv run --locked pytest
+```
+
+建议同时运行 Ruff 检查，确保当前开发环境能够正常工作。
+
+**第四步：从最新 main 创建新的任务分支。**
+
+此时就可以继续开发了。
+
+### 情况 B：已经在自己的功能分支开发，别人更新了 main
+
+例如你正在开发 M2，而 M1 的新依赖已经合并进 `main`。
+
+此时不建议直接切换到 main 后就忘记了自己正在开发的分支。
+
+推荐流程：
+
+1. 先保存或提交当前功能分支中的工作，避免丢失未提交修改。
+2. 在 GitHub Desktop 中切换到 `main`。
+3. Fetch/Pull 最新 `main`。
+4. 切换回自己的 M2 功能分支。
+5. 使用 GitHub Desktop 的分支更新功能，将最新 `main` 合并到当前功能分支，或按团队约定使用 Rebase。
+6. 如有合并冲突，由组员人工判断并解决。
+7. 在当前功能分支执行：
+
+```powershell
+uv sync --locked --dev
+uv run --locked pytest
+```
+
+注意：**仅更新本地 main，不代表正在开发的功能分支也已经获得 main 的新提交。** 需要进行第 5 步。
+
+如果两个分支同时修改过 `pyproject.toml` 或 `uv.lock`，可能产生冲突。不要直接保留某一方的旧锁文件而忽略另一方新增的依赖，应先人工确认依赖声明，再通过 uv 重新解析和生成一致的锁文件，并进行测试。
+---
+
+
+
 ## 下一步与待决事项
 
 1. 确认分工、D 归属、契约维护者及发布协调人，评审暂定 [ADR-0001](docs/adr/0001-repository-boundaries.md)。
